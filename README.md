@@ -93,3 +93,5 @@ runs correctness tests, and collects ten samples for each benchmark
 implementation. It compares GoArchSIMD against RustCgo and portable GoSIMD
 against GoArchSIMD with `benchstat`, appends the comparisons to the Actions
 summary, and uploads raw benchmark and assembly outputs as artifacts.
+The summary also reports per-size median latency, effective bandwidth, and the
+smallest measured size where RustCgo's median latency is lower than GoArchSIMD.
