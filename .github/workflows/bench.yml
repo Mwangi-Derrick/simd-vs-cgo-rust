@@ -44,8 +44,9 @@ jobs:
 
       - name: Run tests and benchmarks
         run: |
-          go test -v ./kernel/...
-          go test -bench=BenchmarkFma -benchmem -count=6 ./kernel/... | tee bench-${{ matrix.arch }}.txt
+          cd kernel
+          go test -v ./...
+          go test -bench=BenchmarkFma -benchmem -count=6 | tee bench-${{ matrix.arch }}.txt
       
       - name: Install benchstat
         run: go install golang.org/x/perf/cmd/benchstat@latest
