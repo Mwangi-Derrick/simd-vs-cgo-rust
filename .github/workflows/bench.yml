@@ -42,6 +42,7 @@ jobs:
         working-directory: rust-simd
         run: |
           cargo build --release --target ${{ matrix.rust_target }}
+          mkdir -p target/release
           cp target/${{ matrix.rust_target }}/release/libfma_rust_simd.a target/release/libfma_rust_simd.a
 
       - name: Verify Rust SIMD assembly
