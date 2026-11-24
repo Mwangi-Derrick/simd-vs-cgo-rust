@@ -40,13 +40,37 @@ jobs:
 
       - name: Build Rust SIMD staticlib
         working-directory: rust-simd
-        run: cargo build --release --target ${{ matrix.rust_target }} && cp target/${{ matrix.rust_target }}/release/libfma_rust_simd.a target/release/libfma_rust_simd.a
+        run: |
+          cargo build --release --target ${{ matrix.rust_target }}
+          cp target/${{ matrix.rust_target }}/release/libfma_rust_simd.a target/release/libfma_rust_simd.a
+
+      - name: Verify Rust SIMD assembly
+        working-directory: rust-simd
+        run: |
+          cargo rustc --release --target ${{ matrix.rust_target }} -- --emit=asm
+          find target/${{ matrix.rust_target }}/release -name '*.s' -print -exec cat {} \; > rust-asm-${{ matrix.arch }}.txt
+          if [ "${{ matrix.arch }}" = "amd64" ]; then
+            grep -Eiq 'vfmadd[0-9]*ps' rust-asm-${{ matrix.arch }}.txt
+          else
+            grep -Eiq '\bfmla\b' rust-asm-${{ matrix.arch }}.txt
+          fi
 
       - name: Run tests and benchmarks
         run: |
           cd kernel
           go test -v ./...
-          go test -bench=BenchmarkFma -benchmem -count=6 | tee bench-${{ matrix.arch }}.txt
+          go test -bench=BenchmarkFma -benchmem -count=10 | tee bench-${{ matrix.arch }}.txt
+
+      - name: Verify Go SIMD assembly
+        run: |
+          cd kernel
+          go test -c -o kernel.test
+          go tool objdump -s 'simdprobe\.Fma(GoSIMD|ArchSIMD)' kernel.test > go-asm-${{ matrix.arch }}.txt
+          if [ "${{ matrix.arch }}" = "amd64" ]; then
+            grep -Eiq 'VFMADD' go-asm-${{ matrix.arch }}.txt
+          else
+            grep -Eiq 'FMLA|FMADDS' go-asm-${{ matrix.arch }}.txt
+          fi
       
       - name: Install benchstat
         run: go install golang.org/x/perf/cmd/benchstat@latest
@@ -61,12 +85,21 @@ jobs:
       - name: Compare Go SIMD vs Rust cgo with benchstat
         run: |
           echo "=== GoArchSIMD (baseline) vs RustCgo ==="
-          benchstat go_archsimd-${{ matrix.arch }}.txt rust_cgo-${{ matrix.arch }}.txt
-
-          echo "=== Portable GoSIMD (baseline) vs GoArchSIMD ==="
-          benchstat go_simd-${{ matrix.arch }}.txt go_archsimd-${{ matrix.arch }}.txt
+          {
+            echo '## ${{ matrix.arch }} benchmark comparison'
+            echo '### GoArchSIMD (baseline) vs RustCgo'
+            benchstat kernel/go_archsimd-${{ matrix.arch }}.txt kernel/rust_cgo-${{ matrix.arch }}.txt
+            echo '### Portable GoSIMD (baseline) vs GoArchSIMD'
+            benchstat kernel/go_simd-${{ matrix.arch }}.txt kernel/go_archsimd-${{ matrix.arch }}.txt
+          } | tee -a "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
         with:
           name: simd-bench-${{ matrix.arch }}
-          path: bench-${{ matrix.arch }}.txt
+          path: |
+            kernel/bench-${{ matrix.arch }}.txt
+            kernel/go_simd-${{ matrix.arch }}.txt
+            kernel/go_archsimd-${{ matrix.arch }}.txt
+            kernel/rust_cgo-${{ matrix.arch }}.txt
+            kernel/go-asm-${{ matrix.arch }}.txt
+            rust-simd/rust-asm-${{ matrix.arch }}.txt
