@@ -17,18 +17,34 @@ across varying element counts `N` to isolate:
 
 ## Project Layout
 
-```text
-simd-vs-cgo-rust/
-├── go.mod
-├── kernel/
-│   ├── fma_scalar.go          # Scalar reference implementation & shared helpers
-│   ├── fma_go_simd.go         # Go 1.27 portable `simd` implementation (`goexperiment.simd`)
-│   ├── fma_archsimd_amd64.go  # AVX2 (`Float32x8`) fast path with runtime feature check
-│   ├── fma_archsimd_arm64.go  # NEON (`Float32x4`) fast path for AArch64
-│   ├── fma_archsimd_other.go  # Scalar fallback on non-amd64/arm64 targets
-│   ├── fma_cgo_rust.go        # Go `cgo` wrapper invoking `fma_f32_slice`
-│   └── fma_bench_test.go      # Correctness tests & buffer-size-swept benchmarks
-├── rust-simd/
+For `benchstat` comparisons, install the tool and save each implementation's
+samples to a separate file:
+
+```bash
+go install golang.org/x/perf/cmd/benchstat@latest
+GOEXPERIMENT=simd go test -bench='BenchmarkFma/GoSIMD/' -benchmem -count=10 > go_simd.txt
+GOEXPERIMENT=simd go test -bench='BenchmarkFma/GoArchSIMD/' -benchmem -count=10 > go_archsimd.txt
+GOEXPERIMENT=simd go test -bench='BenchmarkFma/RustCgo/' -benchmem -count=10 > rust_cgo.txt
+benchstat go_archsimd.txt rust_cgo.txt
+benchstat go_simd.txt go_archsimd.txt
+```
+
+## Inspect Generated Assembly
+
+From the repository root, emit Rust assembly and find the generated files:
+
+```bash
+cargo rustc --manifest-path rust-simd/Cargo.toml --release -- --emit=asm
+find rust-simd/target/release -name '*.s' -print
+grep -Ei -n -C 5 'vfmadd|fmla' rust-simd/target/release/build/fma_rust_simd/*/out/*.s
+```
+
+Inspect Go code generation from `kernel`:
+
+```bash
+GOEXPERIMENT=simd go test -c -o /tmp/kernel.test
+go tool objdump -s 'simdprobe\.Fma(GoSIMD|ArchSIMD)' /tmp/kernel.test
+```
 │   ├── Cargo.toml             # `staticlib` crate exporting `extern "C"` entry point
 │   └── src/lib.rs             # Explicit `core::arch` FMA/NEON intrinsics + fallback
 └── .github/
@@ -48,23 +64,21 @@ simd-vs-cgo-rust/
 Build the Rust static library:
 
 ```bash
-cd rust-simd
-cargo build --release
-cd ..
+cargo build --release --manifest-path rust-simd/Cargo.toml
 ```
 
 
-## Run correctness tests:
+The Go module is in `kernel`, so enter that directory before running Go commands:
 
 ```bash
-GOEXPERIMENT=simd go test -v ./kernel/...
-Run benchmarks:
+cd kernel
+GOEXPERIMENT=simd go test -v ./...
 ```
 
+Run the grouped benchmarks:
+
 ```bash
-GOEXPERIMENT=simd go test -bench=BenchmarkFma -benchmem -count=6 ./kernel/...
-Inspecting Generated Assembly
-Rust (rustc emitted .s)
+GOEXPERIMENT=simd go test -bench=BenchmarkFma -benchmem -count=10
 ```
 
 ```bash
@@ -79,13 +93,11 @@ GOEXPERIMENT=simd go test -c -o /tmp/kernel.test ./kernel
 go tool objdump -s 'kernel\.(FmaGoSIMD|FmaArchSIMD)' /tmp/kernel.test
 ```
 
-### CI Pipeline (.github/workflows/bench.yml)
-Runs across amd64 and arm64 runners and:
+### CI Pipeline
 
-Builds the Rust staticlib and emits assembly, failing CI if expected vector instructions (vfmadd on x86_64, fmla on aarch64) are absent.
-
-Compiles the Go test binary once, dumps FmaGoSIMD and FmaArchSIMD disassembly, and verifies expected SIMD/FMA instructions.
-
-Executes correctness tests and grouped benchmarks (-count=10) for GoSIMD, GoArchSIMD, and RustCgo.
-
-Generates benchstat comparisons and a markdown summary (crossover-${{ matrix.arch }}.txt, also appended to $GITHUB_STEP_SUMMARY) reporting the smallest buffer size N where RustCgo wins, per-size median latency (ns/op), and effective bandwidth (GB/s).
+CI runs on amd64 and arm64 runners. It builds the Rust static library, checks
+the generated Rust and Go assembly for architecture-specific FMA instructions,
+runs correctness tests, and collects ten samples for each benchmark
+implementation. It compares GoArchSIMD against RustCgo and portable GoSIMD
+against GoArchSIMD with `benchstat`, appends the comparisons to the Actions
+summary, and uploads raw benchmark and assembly outputs as artifacts.
