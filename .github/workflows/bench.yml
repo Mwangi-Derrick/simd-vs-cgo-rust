@@ -46,6 +46,23 @@ jobs:
         run: |
           go test -v ./kernel/...
           go test -bench=BenchmarkFma -benchmem -count=6 ./kernel/... | tee bench-${{ matrix.arch }}.txt
+      
+      - name: Install benchstat
+        run: go install golang.org/x/perf/cmd/benchstat@latest
+
+      - name: Run grouped benchmarks for statistical comparison
+        run: |
+          go test -bench='BenchmarkFma/GoSIMD/' -benchmem -count=10 ./kernel/... > go_simd-${{ matrix.arch }}.txt
+          go test -bench='BenchmarkFma/GoArchSIMD/' -benchmem -count=10 ./kernel/... > go_archsimd-${{ matrix.arch }}.txt
+          go test -bench='BenchmarkFma/RustCgo/' -benchmem -count=10 ./kernel/... > rust_cgo-${{ matrix.arch }}.txt
+
+      - name: Compare Go SIMD vs Rust cgo with benchstat
+        run: |
+          echo "=== GoArchSIMD (baseline) vs RustCgo ==="
+          benchstat go_archsimd-${{ matrix.arch }}.txt rust_cgo-${{ matrix.arch }}.txt
+
+          echo "=== Portable GoSIMD (baseline) vs GoArchSIMD ==="
+          benchstat go_simd-${{ matrix.arch }}.txt go_archsimd-${{ matrix.arch }}.txt
 
       - uses: actions/upload-artifact@v4
         with:
