@@ -17,6 +17,45 @@ across varying element counts `N` to isolate:
 
 ## Project Layout
 
+simd-vs-cgo-rust/
+├── kernel/
+│   ├── go.mod                 # Go module root
+│   ├── fma_scalar.go          # Scalar reference implementation & shared helpers
+│   ├── fma_go_simd.go         # Go 1.27 portable `simd` implementation
+│   ├── fma_archsimd_amd64.go  # amd64 architecture-specific SIMD
+│   ├── fma_archsimd_arm64.go  # arm64 architecture-specific SIMD
+│   ├── fma_cgo_rust.go        # Go `cgo` wrapper invoking Rust
+│   └── fma_bench_test.go      # Correctness tests and benchmarks
+├── rust-simd/
+│   ├── Cargo.toml             # `staticlib` crate exporting `extern "C"` entry point
+│   └── src/lib.rs             # Explicit `core::arch` FMA/NEON intrinsics + fallback
+└── .github/workflows/bench.yml
+```
+
+## Prerequisites
+
+- Go 1.27+ with `GOEXPERIMENT=simd`
+- Rust toolchain (`cargo` / `rustc`)
+- C compiler (`gcc` or `clang`) for cgo
+- Optional: `benchstat` (`go install golang.org/x/perf/cmd/benchstat@latest`)
+
+## Running Locally
+
+From the repository root, build the Rust static library, then run Go from its
+module directory:
+
+```bash
+cargo build --release --manifest-path rust-simd/Cargo.toml
+cd kernel
+GOEXPERIMENT=simd go test -v ./...
+```
+
+Run the benchmarks:
+
+```bash
+GOEXPERIMENT=simd go test -bench=BenchmarkFma -benchmem -count=10
+```
+
 For `benchstat` comparisons, install the tool and save each implementation's
 samples to a separate file:
 
@@ -31,7 +70,7 @@ benchstat go_simd.txt go_archsimd.txt
 
 ## Inspect Generated Assembly
 
-From the repository root, emit Rust assembly and find the generated files:
+From the repository root, emit Rust assembly and locate the generated files:
 
 ```bash
 cargo rustc --manifest-path rust-simd/Cargo.toml --release -- --emit=asm
@@ -44,53 +83,6 @@ Inspect Go code generation from `kernel`:
 ```bash
 GOEXPERIMENT=simd go test -c -o /tmp/kernel.test
 go tool objdump -s 'simdprobe\.Fma(GoSIMD|ArchSIMD)' /tmp/kernel.test
-```
-│   ├── Cargo.toml             # `staticlib` crate exporting `extern "C"` entry point
-│   └── src/lib.rs             # Explicit `core::arch` FMA/NEON intrinsics + fallback
-└── .github/
-    └── workflows/
-        └── bench.yml          # Multi-arch CI (amd64 & arm64), asm gates, benchstat & summary
-```
-
-## Prerequisites
-
-- Go 1.27+ with `GOEXPERIMENT=simd`
-- Rust toolchain (`cargo` / `rustc`)
-- C compiler (`gcc` or `clang`) for cgo
-- Optional: `benchstat` (`go install golang.org/x/perf/cmd/benchstat@latest`)
-
-## Running Locally
-
-Build the Rust static library:
-
-```bash
-cargo build --release --manifest-path rust-simd/Cargo.toml
-```
-
-
-The Go module is in `kernel`, so enter that directory before running Go commands:
-
-```bash
-cd kernel
-GOEXPERIMENT=simd go test -v ./...
-```
-
-Run the grouped benchmarks:
-
-```bash
-GOEXPERIMENT=simd go test -bench=BenchmarkFma -benchmem -count=10
-```
-
-```bash
-cd rust-simd
-RUSTFLAGS="--emit asm" cargo rustc --release -- --emit asm
-find target/release/deps -name "*.s" -exec grep -n -C 10 "fma_avx_fma_x86_64\|fma_neon_aarch64" {} +
-Go (go tool objdump & native objdump)
-```
-
-```bash
-GOEXPERIMENT=simd go test -c -o /tmp/kernel.test ./kernel
-go tool objdump -s 'kernel\.(FmaGoSIMD|FmaArchSIMD)' /tmp/kernel.test
 ```
 
 ### CI Pipeline
