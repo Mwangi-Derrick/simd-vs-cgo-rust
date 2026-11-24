@@ -56,11 +56,10 @@ jobs:
             grep -Eiq '\bfmla\b' rust-asm-${{ matrix.arch }}.txt
           fi
 
-      - name: Run tests and benchmarks
+      - name: Run correctness tests
         run: |
           cd kernel
           go test -v ./...
-          go test -bench=BenchmarkFma -benchmem -count=10 | tee bench-${{ matrix.arch }}.txt
 
       - name: Verify Go SIMD assembly
         run: |
@@ -93,18 +92,23 @@ jobs:
             benchstat kernel/go_simd-${{ matrix.arch }}.txt kernel/go_archsimd-${{ matrix.arch }}.txt
           } | tee -a "$GITHUB_STEP_SUMMARY"
           awk '
-            function median(kind, size, count,    i, j, value) {
+            function median(kind, size, count,    i, j, value, key) {
+              if (!count) {
+                printf "Missing %s benchmark samples for N=%d\n", kind, size > "/dev/stderr"
+                exit 1
+              }
               for (i = 1; i <= count; i++) {
                 value = kind == "arch" ? archSamples[size, i] : rustSamples[size, i]
                 j = i
-                while (j > 1 && sorted[size, j - 1] > value) {
-                  sorted[size, j] = sorted[size, j - 1]
+                key = kind SUBSEP size
+                while (j > 1 && sorted[key, j - 1] > value) {
+                  sorted[key, j] = sorted[key, j - 1]
                   j--
                 }
-                sorted[size, j] = value
+                sorted[key, j] = value
               }
-              if (count % 2) return sorted[size, (count + 1) / 2]
-              return (sorted[size, count / 2] + sorted[size, count / 2 + 1]) / 2
+              if (count % 2) return sorted[key, (count + 1) / 2]
+              return (sorted[key, count / 2] + sorted[key, count / 2 + 1]) / 2
             }
             {
               if ($4 != "ns/op" || !match($1, /N=[0-9]+/)) next
@@ -136,7 +140,6 @@ jobs:
         with:
           name: simd-bench-${{ matrix.arch }}
           path: |
-            kernel/bench-${{ matrix.arch }}.txt
             kernel/go_simd-${{ matrix.arch }}.txt
             kernel/go_archsimd-${{ matrix.arch }}.txt
             kernel/rust_cgo-${{ matrix.arch }}.txt
