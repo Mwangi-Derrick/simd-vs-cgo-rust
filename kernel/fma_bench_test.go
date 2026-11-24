@@ -34,6 +34,15 @@ func TestFmaCorrectness(t *testing.T) {
 		gotRust := make([]float32, n)
 		FmaRustCgo(gotRust, a, b, c)
 
+		// Inside TestFmaCorrectness loop:
+		gotArch := make([]float32, n)
+		FmaArchSIMD(gotArch, a, b, c)
+		for i := 0; i < n; i++ {
+			if diff := math.Abs(float64(ref[i] - gotArch[i])); diff > 1e-4 {
+				t.Fatalf("n=%d i=%d ArchSIMD mismatch: want %v got %v", n, i, ref[i], gotArch[i])
+			}
+		}
+
 		for i := 0; i < n; i++ {
 			if diff := math.Abs(float64(ref[i] - gotGo[i])); diff > 1e-4 {
 				t.Fatalf("n=%d i=%d GoSIMD mismatch: want %v got %v", n, i, ref[i], gotGo[i])
@@ -64,6 +73,7 @@ func BenchmarkFma(b *testing.B) {
 		b.Run("Scalar/N="+itoa(n), func(b *testing.B) { runBench(b, n, FmaScalar) })
 		b.Run("GoSIMD/N="+itoa(n), func(b *testing.B) { runBench(b, n, FmaGoSIMD) })
 		b.Run("RustCgo/N="+itoa(n), func(b *testing.B) { runBench(b, n, FmaRustCgo) })
+        b.Run("GoArchSIMD/N="+itoa(n), func(b *testing.B) { runBench(b, n, FmaArchSIMD) })
 	}
 }
 
