@@ -53,9 +53,10 @@ jobs:
 
       - name: Run grouped benchmarks for statistical comparison
         run: |
-          go test -bench='BenchmarkFma/GoSIMD/' -benchmem -count=10 ./kernel/... > go_simd-${{ matrix.arch }}.txt
-          go test -bench='BenchmarkFma/GoArchSIMD/' -benchmem -count=10 ./kernel/... > go_archsimd-${{ matrix.arch }}.txt
-          go test -bench='BenchmarkFma/RustCgo/' -benchmem -count=10 ./kernel/... > rust_cgo-${{ matrix.arch }}.txt
+          cd kernel
+          go test -bench='BenchmarkFma/GoSIMD/' -benchmem -count=10 > go_simd-${{ matrix.arch }}.txt
+          go test -bench='BenchmarkFma/GoArchSIMD/' -benchmem -count=10 > go_archsimd-${{ matrix.arch }}.txt
+          go test -bench='BenchmarkFma/RustCgo/' -benchmem -count=10 > rust_cgo-${{ matrix.arch }}.txt
 
       - name: Compare Go SIMD vs Rust cgo with benchstat
         run: |
