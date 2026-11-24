@@ -85,7 +85,6 @@ jobs:
 
       - name: Compare Go SIMD vs Rust cgo with benchstat
         run: |
-          echo "=== GoArchSIMD (baseline) vs RustCgo ==="
           {
             echo '## ${{ matrix.arch }} benchmark comparison'
             echo '### GoArchSIMD (baseline) vs RustCgo'
@@ -93,6 +92,45 @@ jobs:
             echo '### Portable GoSIMD (baseline) vs GoArchSIMD'
             benchstat kernel/go_simd-${{ matrix.arch }}.txt kernel/go_archsimd-${{ matrix.arch }}.txt
           } | tee -a "$GITHUB_STEP_SUMMARY"
+          awk '
+            function median(kind, size, count,    i, j, value) {
+              for (i = 1; i <= count; i++) {
+                value = kind == "arch" ? archSamples[size, i] : rustSamples[size, i]
+                j = i
+                while (j > 1 && sorted[size, j - 1] > value) {
+                  sorted[size, j] = sorted[size, j - 1]
+                  j--
+                }
+                sorted[size, j] = value
+              }
+              if (count % 2) return sorted[size, (count + 1) / 2]
+              return (sorted[size, count / 2] + sorted[size, count / 2 + 1]) / 2
+            }
+            {
+              if ($4 != "ns/op" || !match($1, /N=[0-9]+/)) next
+              size = substr($1, RSTART + 2, RLENGTH - 2) + 0
+              if (FILENAME == ARGV[1]) archSamples[size, ++archCount[size]] = $3
+              else rustSamples[size, ++rustCount[size]] = $3
+            }
+            END {
+              sizes[1] = 64
+              sizes[2] = 1024
+              sizes[3] = 65536
+              sizes[4] = 1048576
+              print "### Per-size median latency and effective bandwidth"
+              print "| N | GoArchSIMD ns/op | RustCgo ns/op | GoArchSIMD GB/s | RustCgo GB/s |"
+              print "|---:|---:|---:|---:|---:|"
+              for (i = 1; i <= 4; i++) {
+                size = sizes[i]
+                arch = median("arch", size, archCount[size])
+                rust = median("rust", size, rustCount[size])
+                printf "| %d | %.2f | %.2f | %.2f | %.2f |\n", size, arch, rust, 16 * size / arch, 16 * size / rust
+                if (crossover == 0 && rust < arch) crossover = size
+              }
+              if (crossover) printf "\nSmallest measured N where RustCgo has lower median latency than GoArchSIMD: %d.\n", crossover
+              else print "\nRustCgo did not have lower median latency than GoArchSIMD at the measured sizes."
+            }
+          ' kernel/go_archsimd-${{ matrix.arch }}.txt kernel/rust_cgo-${{ matrix.arch }}.txt >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
         with:
