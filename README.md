@@ -17,6 +17,7 @@ across varying element counts `N` to isolate:
 
 ## Project Layout
 
+```text
 simd-vs-cgo-rust/
 ├── kernel/
 │   ├── go.mod                 # Go module root
