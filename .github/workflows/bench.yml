@@ -1,0 +1,53 @@
+name: Multi-Arch SIMD Benchmarks
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+
+jobs:
+  bench:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            arch: amd64
+            rust_target: x86_64-unknown-linux-gnu
+          - os: ubuntu-24.04-arm
+            arch: arm64
+            rust_target: aarch64-unknown-linux-gnu
+
+    runs-on: ${{ matrix.os }}
+    env:
+      GOEXPERIMENT: simd
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27.2"
+
+      - name: Log CPU capabilities
+        run: |
+          uname -m
+          lscpu || cat /proc/cpuinfo | head -n 40
+
+      - name: Build Rust SIMD staticlib
+        working-directory: rust-simd
+        run: cargo build --release --target ${{ matrix.rust_target }} && cp target/${{ matrix.rust_target }}/release/libfma_rust_simd.a target/release/libfma_rust_simd.a
+
+      - name: Run tests and benchmarks
+        run: |
+          go test -v ./kernel/...
+          go test -bench=BenchmarkFma -benchmem -count=6 ./kernel/... | tee bench-${{ matrix.arch }}.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: simd-bench-${{ matrix.arch }}
+          path: bench-${{ matrix.arch }}.txt
